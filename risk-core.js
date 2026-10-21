@@ -62,5 +62,27 @@ function scenario(data,period,unit='',inputs={}){
  const gross=s.revenue-s.cost,revenueDelta=Math.round(s.revenue*revenuePct/100),grossDelta=Math.round(gross*revenuePct/100),expenseSaving=Math.round(s.expense*expensePct/100),cashCollection=Math.round(s.ar.overdue*collectPct/100);
  return {baseProfit:s.profit,revenueDelta,grossDelta,expenseSaving,profit:s.profit+grossDelta+expenseSaving,cashCollection,receivableReduction:cashCollection,profitFromCollection:0,scope:unit||'company',assumptions:'毛利率不变、经营体费用按假设减少、共享费用不变；回收已确认应收只模拟现金和应收变化，不再次计入利润。并非预测。'};
 }
-const api={definitions,defaults,validateConfig,inspect,scenario};root.ManagementCore=api;if(typeof module!=='undefined')module.exports=api;
+// 将同主题信号合并为一个核验事项；信号金额不相加，不形成健康分或损失额。
+function brief(data,period,unit='',config=defaults()){
+ const primary=inspect(data,period,unit,config),checks=unit?[primary]:[primary,...C.codes.map(code=>inspect(data,period,code,config))];
+ const themes=[
+  {id:'funds',title:'资金与回款',ruleIds:['cash','ar','ap'],owner:'财务应收/应付 + 业务',action:'核到账与核销，再核到期；形成收付款安排，避免将争议、未核销和应付承诺混算。',acceptance:'到账/付款凭证与核销关系一致，资金安排经负责人复核。'},
+  {id:'earnings',title:'利润与费用',ruleIds:['loss','revenue','margin','expense'],owner:'经营体负责人 + 财务',action:'先核公司费用桥和期间，再按收入、成本、费用拆变化，区分经常性与一次性重组事项。',acceptance:'同范围基准对齐，费用/成本/退货资料支持解释；不以数学贡献代替业务原因。'},
+  {id:'goods',title:'商品与库存',ruleIds:['stock'],owner:'商品负责人 + 各经营体',action:'按款色码、季节、仓店核对长库龄货权与可售状态；补销售和退货，再评估调拨或处理。',acceptance:'快照、货权与明细相符，方案有实际成交/成本依据，不把库存账面值当清货回款。'}
+ ];
+ const groups=themes.map(t=>{
+  const all=checks.flatMap(c=>c.rules).filter(r=>t.ruleIds.includes(r.id)&&r.status!=='na');
+  const unique=new Map(all.map(r=>[r.scope+':'+r.id,{...r,key:r.scope+':'+r.id}])),rules=[...unique.values()];
+  const hits=rules.filter(r=>r.status==='hit').sort((a,b)=>(a.severity==='red'?0:1)-(b.severity==='red'?0:1)),missing=rules.filter(r=>r.status==='unavailable');
+  return {...t,rules,hits,missing,level:hits.some(r=>r.severity==='red')?'red':hits.length?'amber':missing.length?'unknown':'clear'};
+ });
+ let companyBridge=null;
+ if(!unit&&primary.rules.find(r=>r.id==='loss').value!==null){
+  const parts=C.codes.map(code=>({label:({ecommerce:'电商',direct:'正价',outlet:'奥莱'})[code]+'（共享前）',value:C.summary(data,period,code).profit}));
+  const shared=C.select(data,'shared',period);parts.push({label:'公司共享费用',value:-total(shared,'amount')});
+  companyBridge={parts,profit:C.summary(data,period).profit,residual:C.sum(parts,'value')-C.summary(data,period).profit,sourceIds:[...C.select(data,'financial',period),...shared].map(r=>r.id)};
+ }
+ return {period,unit,primary,checks,groups,companyBridge,queue:groups.filter(g=>g.hits.length||g.missing.length).sort((a,b)=>({red:0,amber:1,unknown:2,clear:3})[a.level]-({red:0,amber:1,unknown:2,clear:3})[b.level])};
+}
+const api={definitions,defaults,validateConfig,inspect,scenario,brief};root.ManagementCore=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
