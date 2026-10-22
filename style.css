@@ -12,3 +12,5 @@
 #feedback:empty{display:none}
 
 .kpi>*{position:relative;z-index:1}@media(max-width:760px){svg.chart text{font-size:22px}}
+
+.local-tool-link{display:inline-flex;align-items:center;padding:9px 13px;border:1px solid #d5dfce;border-radius:7px;background:#eef3e8;text-decoration:none;font-size:12px}
